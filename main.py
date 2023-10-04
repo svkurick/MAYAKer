@@ -1,7 +1,6 @@
 import time
 import os
 import requests
-from time import sleep
 from datetime import datetime
 
 import configparser
@@ -30,6 +29,8 @@ username = config.get('mayak', 'USERNAME')
 password = config.get('mayak', 'PASSWORD')
 token = config.get('details', 'token')
 sv_id = config.get('tg_id', 'sv_id')
+da_id = config.get('tg_id', 'da_id')
+mm_id = config.get('tg_id', 'mm_id')
 
 DEELAY_TIME = 120
 ERROR_DEELAY_TIME = 10
@@ -62,7 +63,7 @@ session.headers = {
 
 
 class UnauthorizedException(Exception):
-    pass
+    logging.warning('Проблема с авторизацией')
 
 
 def success_confirmation_answer(html):
@@ -93,7 +94,7 @@ def start_auth(call):
         )
         logging.info('Ввели логин и пароль, ждем код из СМС')
     except Exception as text_error:
-        logging.error('Проблемы с авторизацией')
+        logging.error(f'Проблемы с авторизацией {text_error}')
 
 
 def preparation_authorize():
@@ -107,6 +108,7 @@ def preparation_authorize():
         )
         markup_inline.add(item_download_card)
         bot.send_message(sv_id, message_text, reply_markup=markup_inline)
+        bot.send_message(mm_id, message_text, reply_markup=markup_inline)
         logging.info('Отправили сообщение о готовности к авторизации')
     except Exception as text_error:
         logging.error(
@@ -118,7 +120,6 @@ def preparation_authorize():
 def auth(message):
     try:
         data = {
-            # 'sr': 'OQ==',
             'confirm_code': message.text,
             'sfa_time_reload': '',
         }
@@ -138,12 +139,6 @@ def get_news():
     try:
         VIEWED = 1
         READ = 2
-        cookies = {
-            '_ym_uid': '169415399627035008',
-            '_ym_d': '1694153996',
-            'SessionId': 'JSlBD_y7TvjXADr4tE02Lw%3D%3DYXM1RUF5U1BEbTlyeGphS5xtmHjFxFap7FqxYtvq4wy0mp4msD_BvDKwAtvWQ9Qw',
-            '_ym_isad': '1',
-        }
 
         current_page = 1
 
@@ -153,7 +148,7 @@ def get_news():
                 'page': current_page,
             }
 
-            r = session.post(NEWS_URL, params=params, cookies=cookies)
+            r = session.post(NEWS_URL, params=params)
             if r.status_code == 401:
                 raise UnauthorizedException
             response = r.json()
@@ -208,9 +203,19 @@ def send_news_to_tg(news):
             file_dir = os.path.join(str(app_dir), 'download', attachment)
             media_group.append(types.InputMediaDocument(open(file_dir, 'rb')))
 
+        bot.send_message(mm_id, message, parse_mode='HTML')
+        bot.send_media_group(
+            mm_id,
+            media=media_group
+        )
         bot.send_message(sv_id, message, parse_mode='HTML')
         bot.send_media_group(
             sv_id,
+            media=media_group
+        )
+        bot.send_message(da_id, message, parse_mode='HTML')
+        bot.send_media_group(
+            da_id,
             media=media_group
         )
 
@@ -246,6 +251,8 @@ def mark_read(news):
 
 def bot_polling():
     logging.info('Запуск бота')
+    bot.send_message(da_id, 'Бот МАЯКер запущен')
+
     preparation_authorize()
     bot.polling(none_stop=True, timeout=123)
     while True:
