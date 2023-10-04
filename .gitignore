@@ -1,0 +1,14 @@
+# created by virtualenv automatically
+/download
+/config.properties
+/logs.log
+/venv/
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.idea/
+__pycache__/

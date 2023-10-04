@@ -1,0 +1,13 @@
+# telegram bot token
+[details]
+token:tg_bot_token
+
+
+[mayak]
+USERNAME=mayak_username
+PASSWORD=mayak_password
+
+[tg_id]
+sv_id=tg_id
+da_id=tg_id
+mm_id=tg_id
