@@ -156,7 +156,8 @@ def get_news():
             if len(data) == 0:
                 if len(new_news) > 0:
                     logging.info(f'Появились новости. {len(new_news)} шт.')
-                logging.info(f'Появились новости. {len(new_news)} шт.')
+                else:
+                    logging.info(f'Новостей нет')
                 return new_news
             for news in data:
                 if news['status'] == VIEWED or news['status'] == READ:
@@ -177,11 +178,36 @@ def download_attachment(news_id, attachments):
                               'download',
                               attachment['file_full_name']
                               ), 'wb').write(response.content)
-        logging.info('Успешно сохранены все вложения')
+        logging.info(
+            f'Успешно сохранено вложение {attachment["file_full_name"]}'
+        )
     except Exception as text_error:
         logging.error(
             f'Проблемы с сохранением вложенных документов {text_error}'
         )
+
+
+def get_downloaded_files_paths():
+    downloaded_files_path = []
+    downloaded_file_names = os.listdir(os.path.join(str(app_dir), 'download'))
+    for file_name in downloaded_file_names:
+        downloaded_files_path.append(os.path.join(str(app_dir), 'download',
+                                                  file_name))
+    return downloaded_files_path
+
+
+def send_media_group(tg_id, message):
+    media_group = []
+    attachments = get_downloaded_files_paths()
+    for attachment in attachments:
+        media_group.append(types.InputMediaDocument(open(attachment, 'rb')))
+    bot.send_message(tg_id, message, parse_mode='HTML')
+    bot.send_media_group(
+        tg_id,
+        media=media_group
+    )
+    for media in media_group:
+        media.media.close()
 
 
 def send_news_to_tg(news):
@@ -197,31 +223,12 @@ def send_news_to_tg(news):
             message += (f'\n\n <a href="{news["form_link"]}">'
                         f'<i>ссылка на форму</i></a>')
 
-        attachments = os.listdir(os.path.join(str(app_dir), 'download'))
-        media_group = []
-        for attachment in attachments:
-            file_dir = os.path.join(str(app_dir), 'download', attachment)
-            media_group.append(types.InputMediaDocument(open(file_dir, 'rb')))
+        send_media_group(mm_id, message)
+        send_media_group(sv_id, message)
+        send_media_group(da_id, message)
 
-        bot.send_message(mm_id, message, parse_mode='HTML')
-        bot.send_media_group(
-            mm_id,
-            media=media_group
-        )
-        bot.send_message(sv_id, message, parse_mode='HTML')
-        bot.send_media_group(
-            sv_id,
-            media=media_group
-        )
-        bot.send_message(da_id, message, parse_mode='HTML')
-        bot.send_media_group(
-            da_id,
-            media=media_group
-        )
-
-        for media in media_group:
-            media.media.close()
-            os.remove(media.media.name)
+        for file in get_downloaded_files_paths():
+            os.remove(file)
         logging.info('Сообщения с новостями отправлены')
     except Exception as text_error:
         logging.error(f'Проблема с отправкой новостей в тг {text_error}')
@@ -243,7 +250,7 @@ def mark_read(news):
             session.post(EKIS_FORM_URL, json=json_data)
         if len(data['attachments']) > 0:
             download_attachment(str(news['id']), data['attachments'])
-        logging.info('Новости прочитаны')
+        logging.info(f'Новость прочитана {news["text"]} ')
         return news
     except Exception as text_error:
         logging.error(f'Проблемы с прочитыванием новостей {text_error}')
