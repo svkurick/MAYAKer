@@ -46,7 +46,7 @@ URL_INITIAL = 'https://ekis.moscow/lk/actions/change'
 URL_CONFIRM = 'https://center.educom.ru/oauth/sfa'
 URL_ME = 'https://ekis.moscow/lk/data/user/me'
 NEWS_URL = 'https://ekis.moscow/lk/data/newsfeeds/list'
-UPDATE_LINK = 'https://ekis.moscow/lk/data/newsfeeds/update/'
+UPDATE_LINK = 'https://ekis.moscow/lk/data/newsfeeds/update'
 
 session = requests.Session()
 session.headers = {
@@ -285,7 +285,7 @@ def mark_read(news):
     try:
         read_url = 'https://ekis.moscow/lk/data/newsfeeds/' + str(news['id'])
         EKIS_FORM_URL = 'https://ekis.moscow/lk/data/services/redirect/ekis'
-        r = session.post(read_url)
+        r = session.post(read_url, allow_redirects=True)
         response = r.json()
         data = response['data']
         if len(data['form_link']) > 0:
@@ -295,10 +295,14 @@ def mark_read(news):
                 'path': data['form_link'],
             }
             session.post(EKIS_FORM_URL, json=json_data)
-            json_data = {
-                'id': str(news['id'])
+            req_data = {
+                'id': news['id']
             }
-            session.post(UPDATE_LINK, json=json_data)
+            session.post(
+                UPDATE_LINK,
+                json=req_data,
+                allow_redirects=True
+            )
 
         if len(data['attachments']) > 0:
             download_attachment(str(news['id']), data['attachments'])
