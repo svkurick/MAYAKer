@@ -2,6 +2,7 @@ import time
 import os
 import requests
 from datetime import datetime
+import json
 
 import configparser
 import telebot
@@ -13,6 +14,10 @@ from bs4 import BeautifulSoup
 def get_app_dir():
     directory = os.path.dirname(os.path.abspath(__file__))
     return directory
+
+
+class UnauthorizedException(Exception):
+    pass
 
 
 app_dir = get_app_dir()
@@ -62,10 +67,6 @@ session.headers = {
 }
 
 
-class UnauthorizedException(Exception):
-    logging.warning('Проблема с авторизацией')
-
-
 def success_confirmation_answer(html):
     soup = BeautifulSoup(html, 'html.parser')
     header = soup.find('h4', class_='alert-heading')
@@ -79,6 +80,7 @@ def success_confirmation_answer(html):
 @bot.callback_query_handler(func=lambda call: True)
 def start_auth(call):
     try:
+        session.cookies.clear()
         r = session.get(URL_INITIAL)
         next_url = r.history[1].next.url
         data = {
@@ -99,6 +101,7 @@ def start_auth(call):
 
 def preparation_authorize():
     try:
+        logging.info('Пробуем авторизоваться')
         markup_inline = types.InlineKeyboardMarkup()
         message_text = ('Кажется мы не авторизованы.\n'
                         'Нажми "Готов!", когда будешь готов прислать код')
@@ -107,13 +110,47 @@ def preparation_authorize():
             callback_data='start_auth'
         )
         markup_inline.add(item_download_card)
-        bot.send_message(sv_id, message_text, reply_markup=markup_inline)
         bot.send_message(mm_id, message_text, reply_markup=markup_inline)
         logging.info('Отправили сообщение о готовности к авторизации')
     except Exception as text_error:
         logging.error(
             f'Проблемы с отправкой сообщения о готовности к авторизации {text_error}'
         )
+
+
+def save_cookies(session):
+    try:
+        cookies_dict = requests.utils.dict_from_cookiejar(session.cookies)
+        with open('cookies.json', 'w') as file:
+            json.dump(cookies_dict, file)
+        logging.info('Куки сохранены')
+    except Exception as text_error:
+        logging.error(f'Проблемы с сохранением куки {text_error}')
+
+
+def load_cookies():
+    try:
+        with open('cookies.json', 'r') as file:
+            cookies_dict = json.load(file)
+            session.cookies.clear()
+            session.cookies = requests.utils.cookiejar_from_dict(cookies_dict)
+        logging.info(f'Куки загружены')
+    except Exception as text_error:
+        logging.error(f'Не существует файла с куками, создаем файл {text_error}')
+        with open('cookies.json', 'wb') as f:
+            pass
+    return session
+
+
+def valid_cookies(session):
+    params = {
+        'page': 1,
+    }
+    r = session.post(NEWS_URL, params=params)
+    if r.status_code != 200:
+        logging.warning('Куки не валидны')
+        return False
+    return True
 
 
 @bot.message_handler(content_types=["text"])
@@ -124,18 +161,22 @@ def auth(message):
             'sfa_time_reload': '',
         }
         r = session.post(URL_CONFIRM, data=data)
+
         html = r.text
         if not success_confirmation_answer(html):
             bot.send_message(message.chat.id, 'Код не подошел.. ')
             preparation_authorize()
             return
         bot.send_message(message.chat.id, 'Все отлично! Ждем писем')
+        save_cookies(session)
         bot.stop_polling()
+        return session
     except Exception as text_error:
         logging.error(f'Проблемы с вводом СМС пароля {text_error}')
 
 
 def get_news():
+
     try:
         VIEWED = 1
         READ = 2
@@ -164,6 +205,11 @@ def get_news():
                     new_news.append(news)
 
             current_page += 1
+    except UnauthorizedException:
+        logging.warning('Проблема с авторизацией')
+        preparation_authorize()
+        bot.polling()
+        return []
     except Exception as text_error:
         logging.error(f'Проблема с получением новостей {text_error}')
 
@@ -259,9 +305,12 @@ def mark_read(news):
 def bot_polling():
     logging.info('Запуск бота')
     bot.send_message(da_id, 'Бот МАЯКер запущен')
-
-    preparation_authorize()
-    bot.polling(none_stop=True, timeout=123)
+    session.get(URL_INITIAL)
+    load_cookies()
+    if not valid_cookies(session):
+        preparation_authorize()
+        bot.polling(none_stop=True, timeout=123)
+        load_cookies()
     while True:
         try:
             newsfeed = get_news()
@@ -269,9 +318,6 @@ def bot_polling():
                 mark_read(news)
                 send_news_to_tg(news)
             time.sleep(DEELAY_TIME)
-        except UnauthorizedException:
-            logging.warning('Ошибка авторизации')
-            preparation_authorize()
         except Exception as text_error:
             logging.error(f'Ошибка - {text_error}')
             bot.send_message(
