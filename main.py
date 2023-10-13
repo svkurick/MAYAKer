@@ -12,12 +12,23 @@ from bs4 import BeautifulSoup
 
 
 def get_app_dir():
-    directory = os.path.dirname(os.path.abspath(__file__))
-    return directory
+    return os.path.dirname(os.path.abspath(__file__))
 
 
 class UnauthorizedException(Exception):
     pass
+
+
+def get_tg_id():
+    list_id = []
+    try:
+        tg_id_text = config.get('tg_id', 'list_id')
+        tg_ids = tg_id_text.split(',')
+        for tg_id in tg_ids:
+            list_id.append(int(tg_id))
+    except Exception as text_error:
+        logging.error(f'Проблема с id в конфиге, {text_error}')
+    return list_id
 
 
 app_dir = get_app_dir()
@@ -33,36 +44,41 @@ config.read(os.path.join(str(app_dir), 'config.properties'))
 username = config.get('mayak', 'USERNAME')
 password = config.get('mayak', 'PASSWORD')
 token = config.get('details', 'token')
-sv_id = config.get('tg_id', 'sv_id')
-da_id = config.get('tg_id', 'da_id')
-mm_id = config.get('tg_id', 'mm_id')
 
-DEELAY_TIME = 120
-ERROR_DEELAY_TIME = 10
+main_tg_id = config.get('tg_id', 'main_id')
+tg_id_list = get_tg_id()
+
+CHECK_DELAY_TIME = 120
+ERROR_DELAY_TIME = 10
 
 bot = telebot.TeleBot(token)
 
 URL_INITIAL = 'https://ekis.moscow/lk/actions/change'
 URL_CONFIRM = 'https://center.educom.ru/oauth/sfa'
 URL_ME = 'https://ekis.moscow/lk/data/user/me'
-NEWS_URL = 'https://ekis.moscow/lk/data/newsfeeds/list'
-UPDATE_LINK = 'https://ekis.moscow/lk/data/newsfeeds/update'
+URL_NEWS = 'https://ekis.moscow/lk/data/newsfeeds/list'
+URL_UPDATE = 'https://ekis.moscow/lk/data/newsfeeds/update'
+URL_ATTACHMENT = 'https://ekis.moscow/lk/data/newsfeeds/download/'
+URL_READ_NEWS = 'https://ekis.moscow/lk/data/newsfeeds/'
+URL_EKIS_FORM = 'https://ekis.moscow/lk/data/services/redirect/ekis'
 
 session = requests.Session()
 session.headers = {
     'Accept': '*/*',
     'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
     'Connection': 'keep-alive',
-    # 'Content-Length': '0',
     'Content-Type': 'application/x-www-form-urlencoded',
-    # 'Cookie': '_ym_uid=169415399627035008; _ym_d=1694153996; SessionId=JSlBD_y7TvjXADr4tE02Lw%3D%3DYXM1RUF5U1BEbTlyeGphS5xtmHjFxFap7FqxYtvq4wy0mp4msD_BvDKwAtvWQ9Qw; _ym_isad=1',
     'Origin': 'https://ekis.moscow',
     'Referer': 'https://ekis.moscow/lk/',
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-origin',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
-    'sec-ch-ua': '"Google Chrome";v="117", "Not;A=Brand";v="8", "Chromium";v="117"',
+    'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                   'AppleWebKit/537.36 (KHTML, like Gecko) '
+                   'Chrome/117.0.0.0 Safari/537.36'),
+    'sec-ch-ua': ('"Google Chrome";v="117", '
+                  '"Not;A=Brand";v="8", '
+                  '"Chromium";v="117"'),
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-platform': '"Windows"',
 }
@@ -100,7 +116,7 @@ def start_auth(call):
         logging.error(f'Проблемы с авторизацией {text_error}')
 
 
-def preparation_authorize():
+def prepare_authorize():
     try:
         logging.info('Пробуем авторизоваться')
         markup_inline = types.InlineKeyboardMarkup()
@@ -111,15 +127,16 @@ def preparation_authorize():
             callback_data='start_auth'
         )
         markup_inline.add(item_download_card)
-        bot.send_message(mm_id, message_text, reply_markup=markup_inline)
+        bot.send_message(main_tg_id, message_text, reply_markup=markup_inline)
         logging.info('Отправили сообщение о готовности к авторизации')
     except Exception as text_error:
         logging.error(
-            f'Проблемы с отправкой сообщения о готовности к авторизации {text_error}'
+            f'Проблемы с отправкой сообщения о готовности к '
+            f'авторизации {text_error}'
         )
 
 
-def save_cookies(session):
+def save_cookies_from_session(session):
     try:
         cookies_dict = requests.utils.dict_from_cookiejar(session.cookies)
         with open('cookies.json', 'w') as file:
@@ -135,19 +152,20 @@ def load_cookies():
             cookies_dict = json.load(file)
             session.cookies.clear()
             session.cookies = requests.utils.cookiejar_from_dict(cookies_dict)
-        logging.info(f'Куки загружены')
+        logging.info('Куки загружены')
     except Exception as text_error:
-        logging.error(f'Не существует файла с куками, создаем файл {text_error}')
+        logging.error(f'Не существует файла с куками,'
+                      f'создаем файл, {text_error}')
         with open('cookies.json', 'wb') as f:
-            pass
+            f.close()
     return session
 
 
-def valid_cookies(session):
+def is_cookies_valid(session):
     params = {
         'page': 1,
     }
-    r = session.post(NEWS_URL, params=params)
+    r = session.post(URL_NEWS, params=params)
     if r.status_code != 200:
         logging.warning('Куки не валидны')
         return False
@@ -166,10 +184,10 @@ def auth(message):
         html = r.text
         if not success_confirmation_answer(html):
             bot.send_message(message.chat.id, 'Код не подошел.. ')
-            preparation_authorize()
+            prepare_authorize()
             return
         bot.send_message(message.chat.id, 'Все отлично! Ждем писем')
-        save_cookies(session)
+        save_cookies_from_session(session)
         bot.stop_polling()
         return session
     except Exception as text_error:
@@ -177,20 +195,16 @@ def auth(message):
 
 
 def get_news():
-
     try:
         VIEWED = 1
         READ = 2
-
         current_page = 1
-
         new_news = []
         while True:
             params = {
                 'page': current_page,
             }
-
-            r = session.post(NEWS_URL, params=params)
+            r = session.post(URL_NEWS, params=params)
             if r.status_code == 401:
                 raise UnauthorizedException
             response = r.json()
@@ -199,16 +213,15 @@ def get_news():
                 if len(new_news) > 0:
                     logging.info(f'Появились новости. {len(new_news)} шт.')
                 else:
-                    logging.info(f'Новостей нет')
+                    logging.info('Новостей нет')
                 return new_news
             for news in data:
                 if news['status'] == VIEWED or news['status'] == READ:
                     new_news.append(news)
-
             current_page += 1
     except UnauthorizedException:
         logging.warning('Проблема с авторизацией')
-        preparation_authorize()
+        prepare_authorize()
         bot.polling()
         return []
     except Exception as text_error:
@@ -217,7 +230,7 @@ def get_news():
 
 def download_attachment(news_id, attachments):
     try:
-        link = 'https://ekis.moscow/lk/data/newsfeeds/download/' + news_id
+        link = URL_ATTACHMENT + news_id
         for attachment in attachments:
             attachment_url = link + '/' + str(attachment['guid'])
             response = session.get(attachment_url, allow_redirects=True)
@@ -264,15 +277,16 @@ def send_news_to_tg(news):
             '%Y-%m-%dT%H:%M:%S%z'
         )
         formatted_datetime = datetime_news.strftime("%d-%m-%Y %H:%M")
-        message = f'❗<b>Новое в МАЯКе!</b> <i> {str(formatted_datetime)}</i>\n\n'
+        message = (f'❗<b>Новое в МАЯКе!</b>'
+                   f' <i> {str(formatted_datetime)}</i>\n\n')
         message += news['text']
         if len(news['form_link']) > 0:
             message += (f'\n\n <a href="{news["form_link"]}">'
                         f'<i>ссылка на форму</i></a>')
 
-        send_media_group(mm_id, message)
-        send_media_group(sv_id, message)
-        send_media_group(da_id, message)
+        send_media_group(main_tg_id, message)
+        for tg_id in tg_id_list:
+            send_media_group(tg_id, message)
 
         for file in get_downloaded_files_paths():
             os.remove(file)
@@ -283,8 +297,7 @@ def send_news_to_tg(news):
 
 def mark_read(news):
     try:
-        read_url = 'https://ekis.moscow/lk/data/newsfeeds/' + str(news['id'])
-        EKIS_FORM_URL = 'https://ekis.moscow/lk/data/services/redirect/ekis'
+        read_url = URL_READ_NEWS + str(news['id'])
         r = session.post(read_url, allow_redirects=True)
         response = r.json()
         data = response['data']
@@ -294,12 +307,12 @@ def mark_read(news):
                 'endpoint': 'form',
                 'path': data['form_link'],
             }
-            session.post(EKIS_FORM_URL, json=json_data)
+            session.post(URL_EKIS_FORM, json=json_data)
             req_data = {
                 'id': news['id']
             }
             session.post(
-                UPDATE_LINK,
+                URL_UPDATE,
                 json=req_data,
                 allow_redirects=True
             )
@@ -312,13 +325,18 @@ def mark_read(news):
         logging.error(f'Проблемы с прочитыванием новостей {text_error}')
 
 
+def send_messages(tg_ids, message):
+    for tg_id in tg_ids:
+        bot.send_message(tg_id, message)
+
+
 def bot_polling():
     logging.info('Запуск бота')
-    bot.send_message(da_id, 'Бот МАЯКер запущен')
+    send_messages(tg_id_list, 'Бот МАЯКер запущен')
     session.get(URL_INITIAL)
     load_cookies()
-    if not valid_cookies(session):
-        preparation_authorize()
+    if not is_cookies_valid(session):
+        prepare_authorize()
         bot.polling(none_stop=True, timeout=123)
         load_cookies()
     while True:
@@ -327,14 +345,14 @@ def bot_polling():
             for news in newsfeed:
                 mark_read(news)
                 send_news_to_tg(news)
-            time.sleep(DEELAY_TIME)
+            time.sleep(CHECK_DELAY_TIME)
         except Exception as text_error:
             logging.error(f'Ошибка - {text_error}')
-            bot.send_message(
-                sv_id,
-                f'У нас проблемы, сплю {ERROR_DEELAY_TIME} сек.\n {text_error}'
+            send_messages(
+                tg_id_list,
+                f'У нас проблемы, сплю {ERROR_DELAY_TIME} сек.\n {text_error}'
             )
-            time.sleep(ERROR_DEELAY_TIME)
+            time.sleep(ERROR_DELAY_TIME)
 
 
 if __name__ == "__main__":
