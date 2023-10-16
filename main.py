@@ -359,4 +359,10 @@ def bot_polling():
 
 
 if __name__ == "__main__":
-    bot_polling()
+    while True:
+        try:
+            bot_polling()
+        except Exception as text_error:
+            logging.error(f'Бот упал, ждем {ERROR_DELAY_TIME} сек.'
+                          f'{text_error}')
+            time.sleep(ERROR_DELAY_TIME)
