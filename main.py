@@ -348,10 +348,13 @@ def bot_polling():
             time.sleep(CHECK_DELAY_TIME)
         except Exception as text_error:
             logging.error(f'Ошибка - {text_error}')
-            send_messages(
-                tg_id_list,
-                f'У нас проблемы, сплю {ERROR_DELAY_TIME} сек.\n {text_error}'
-            )
+            try:
+                send_messages(
+                    tg_id_list,
+                    f'У нас проблемы, сплю {ERROR_DELAY_TIME} сек.\n {text_error}'
+                )
+            except Exception as text:
+                logging.error(f'Не смог отправить сообщение {text}')
             time.sleep(ERROR_DELAY_TIME)
 
 
