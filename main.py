@@ -226,6 +226,9 @@ def get_news():
         return []
     except Exception as text_error:
         logging.error(f'Проблема с получением новостей {text_error}')
+        prepare_authorize()
+        bot.polling()
+        return []
 
 
 def download_attachment(news_id, attachments):
