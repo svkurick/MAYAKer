@@ -49,38 +49,33 @@ main_tg_id = config.get('tg_id', 'main_id')
 tg_id_list = get_tg_id()
 
 CHECK_DELAY_TIME = 120
-ERROR_DELAY_TIME = 10
+MIN_ERROR_DELAY_TIME = 10
+ERROR_DELAY_TIME = MIN_ERROR_DELAY_TIME
+MAX_ERROR_DELAY_TIME = 3600
 
 bot = telebot.TeleBot(token)
 
 URL_INITIAL = 'https://ekis.moscow/lk/actions/change'
 URL_CONFIRM = 'https://center.educom.ru/oauth/sfa'
-URL_ME = 'https://ekis.moscow/lk/data/user/me'
-URL_NEWS = 'https://ekis.moscow/lk/data/newsfeeds/list'
-URL_UPDATE = 'https://ekis.moscow/lk/data/newsfeeds/update'
-URL_ATTACHMENT = 'https://ekis.moscow/lk/data/newsfeeds/download/'
-URL_READ_NEWS = 'https://ekis.moscow/lk/data/newsfeeds/'
-URL_EKIS_FORM = 'https://ekis.moscow/lk/data/services/redirect/ekis'
+URL_NEWS = 'https://ekis.moscow/lk/api/v1/newsfeeds/list'
+URL_UPDATE = 'https://ekis.moscow/lk/api/v1/newsfeeds/update'
+URL_ATTACHMENT = 'https://ekis.moscow/lk/api/v1/newsfeeds/download/'
+URL_READ_NEWS = 'https://ekis.moscow/lk/api/v1/newsfeeds/'
+URL_EKIS_FORM = 'https://ekis.moscow/lk/api/v1/services/redirect/ekis'
 
 session = requests.Session()
 session.headers = {
-    'Accept': '*/*',
-    'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Connection': 'keep-alive',
-    'Content-Type': 'application/x-www-form-urlencoded',
-    'Origin': 'https://ekis.moscow',
-    'Referer': 'https://ekis.moscow/lk/',
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'same-origin',
-    'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                   'AppleWebKit/537.36 (KHTML, like Gecko) '
-                   'Chrome/117.0.0.0 Safari/537.36'),
-    'sec-ch-ua': ('"Google Chrome";v="117", '
-                  '"Not;A=Brand";v="8", '
-                  '"Chromium";v="117"'),
+    'authority': 'ekis.moscow',
+    'accept': '*/*',
+    'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+    'referer': 'https://ekis.moscow/lk/',
+    'sec-ch-ua': '"Chromium";v="118", "Google Chrome";v="118", "Not=A?Brand";v="99"',
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
 }
 
 
@@ -163,9 +158,9 @@ def load_cookies():
 
 def is_cookies_valid(session):
     params = {
-        'page': 1,
+        'page': '1',
     }
-    r = session.post(URL_NEWS, params=params)
+    r = session.get(URL_NEWS, params=params)
     if r.status_code != 200:
         logging.warning('Куки не валидны')
         return False
@@ -202,9 +197,9 @@ def get_news():
         new_news = []
         while True:
             params = {
-                'page': current_page,
+                'page': str(current_page),
             }
-            r = session.post(URL_NEWS, params=params)
+            r = session.get(URL_NEWS, params=params)
             if r.status_code == 401:
                 raise UnauthorizedException
             response = r.json()
@@ -293,7 +288,7 @@ def send_news_to_tg(news):
 
         for file in get_downloaded_files_paths():
             os.remove(file)
-        logging.info('Сообщения с новостями отправлены')
+        logging.info('Сообщения с новостью отправлены')
     except Exception as text_error:
         logging.error(f'Проблема с отправкой новостей в тг {text_error}')
 
@@ -301,7 +296,7 @@ def send_news_to_tg(news):
 def mark_read(news):
     try:
         read_url = URL_READ_NEWS + str(news['id'])
-        r = session.post(read_url, allow_redirects=True)
+        r = session.get(read_url, allow_redirects=True)
         response = r.json()
         data = response['data']
         if len(data['form_link']) > 0:
@@ -336,29 +331,34 @@ def send_messages(tg_ids, message):
 def bot_polling():
     logging.info('Запуск бота')
     send_messages(tg_id_list, 'Бот МАЯКер запущен')
-    session.get(URL_INITIAL)
-    load_cookies()
-    if not is_cookies_valid(session):
-        prepare_authorize()
-        bot.polling(none_stop=True, timeout=123)
-        load_cookies()
     while True:
-        try:
-            newsfeed = get_news()
-            for news in newsfeed:
-                mark_read(news)
-                send_news_to_tg(news)
-            time.sleep(CHECK_DELAY_TIME)
-        except Exception as text_error:
-            logging.error(f'Ошибка - {text_error}')
+        session.get(URL_INITIAL)
+        load_cookies()
+        if not is_cookies_valid(session):
+            prepare_authorize()
+            bot.polling(none_stop=True, timeout=123)
+            load_cookies()
+        while True:
             try:
-                send_messages(
-                    tg_id_list,
-                    f'У нас проблемы, сплю {ERROR_DELAY_TIME} сек.\n {text_error}'
-                )
-            except Exception as text:
-                logging.error(f'Не смог отправить сообщение {text}')
-            time.sleep(ERROR_DELAY_TIME)
+                newsfeed = get_news()
+                for news in newsfeed:
+                    mark_read(news)
+                    send_news_to_tg(news)
+                time.sleep(CHECK_DELAY_TIME)
+                ERROR_DELAY_TIME = MIN_ERROR_DELAY_TIME
+            except Exception as text_error:
+                logging.error(f'Ошибка - {text_error}')
+                try:
+                    send_messages(
+                        tg_id_list,
+                        f'У нас проблемы, сплю {ERROR_DELAY_TIME} сек.\n {text_error}'
+                    )
+                except Exception as text:
+                    logging.error(f'Не смог отправить сообщение {text}')
+                time.sleep(ERROR_DELAY_TIME)
+                ERROR_DELAY_TIME *= ERROR_DELAY_TIME
+                if ERROR_DELAY_TIME > MAX_ERROR_DELAY_TIME:
+                    ERROR_DELAY_TIME = MAX_ERROR_DELAY_TIME
 
 
 if __name__ == "__main__":
