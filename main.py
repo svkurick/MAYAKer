@@ -20,6 +20,7 @@ class UnauthorizedException(Exception):
 
 
 def get_tg_id():
+    """Получение списка id сотрудников, которым нужно отправлять новости."""
     list_id = []
     try:
         tg_id_text = config.get('tg_id', 'list_id')
@@ -80,6 +81,7 @@ session.headers = {
 
 
 def success_confirmation_answer(html):
+    """Возвращает True при правильно введенном СМС-коде авторизации."""
     soup = BeautifulSoup(html, 'html.parser')
     header = soup.find('h4', class_='alert-heading')
     if header is None:
@@ -91,6 +93,9 @@ def success_confirmation_answer(html):
 
 @bot.callback_query_handler(func=lambda call: True)
 def start_auth(call):
+    """Первая часть авторизации.
+
+    Ввод логина и пароля, запорс СМС пароля."""
     try:
         session.cookies.clear()
         r = session.get(URL_INITIAL)
@@ -112,6 +117,11 @@ def start_auth(call):
 
 
 def prepare_authorize():
+    """Подготовка к авторизации.
+
+    В этой функции происходит отправка сообщения пользователю, на которое нужно
+    ответить, когда он будет готов ввести пароль из СМС.
+    """
     try:
         logging.info('Пробуем авторизоваться')
         markup_inline = types.InlineKeyboardMarkup()
@@ -132,6 +142,7 @@ def prepare_authorize():
 
 
 def save_cookies_from_session(session):
+    """Сохранение куков после успешной авторизации."""
     try:
         cookies_dict = requests.utils.dict_from_cookiejar(session.cookies)
         with open('cookies.json', 'w') as file:
@@ -142,6 +153,7 @@ def save_cookies_from_session(session):
 
 
 def load_cookies():
+    """Загрузка куков из файла для работы."""
     try:
         with open('cookies.json', 'r') as file:
             cookies_dict = json.load(file)
@@ -157,6 +169,7 @@ def load_cookies():
 
 
 def is_cookies_valid(session):
+    """Проверка куков на актуальность."""
     params = {
         'page': '1',
     }
@@ -169,6 +182,7 @@ def is_cookies_valid(session):
 
 @bot.message_handler(content_types=["text"])
 def auth(message):
+    """Вторая часть авторизации. Ввод пароля из СМС."""
     try:
         data = {
             'confirm_code': message.text,
@@ -190,6 +204,7 @@ def auth(message):
 
 
 def get_news():
+    """Получение непрочитанных и непросмотренных новостей."""
     try:
         VIEWED = 1
         READ = 2
@@ -227,6 +242,7 @@ def get_news():
 
 
 def download_attachment(news_id, attachments):
+    """Загрузка вложенных к новостям документов."""
     try:
         link = URL_ATTACHMENT + news_id
         for attachment in attachments:
@@ -246,6 +262,7 @@ def download_attachment(news_id, attachments):
 
 
 def get_downloaded_files_paths():
+    """Получение пути к папке с сохраненными вложениями из новостей."""
     downloaded_files_path = []
     downloaded_file_names = os.listdir(os.path.join(str(app_dir), 'download'))
     for file_name in downloaded_file_names:
@@ -255,6 +272,7 @@ def get_downloaded_files_paths():
 
 
 def send_media_group(tg_id, message):
+    """Группировка документов для отправки одним сообщением."""
     media_group = []
     attachments = get_downloaded_files_paths()
     for attachment in attachments:
@@ -269,6 +287,7 @@ def send_media_group(tg_id, message):
 
 
 def send_news_to_tg(news):
+    """Отправка новости в телеграм."""
     try:
         datetime_news = datetime.strptime(
             news['publish_at'],
@@ -294,6 +313,7 @@ def send_news_to_tg(news):
 
 
 def mark_read(news):
+    """Новость в МАЯКе отмечается как прочитанная."""
     try:
         read_url = URL_READ_NEWS + str(news['id'])
         r = session.get(read_url, allow_redirects=True)
@@ -324,11 +344,13 @@ def mark_read(news):
 
 
 def send_messages(tg_ids, message):
+    """Отправка сообщения группе получателей."""
     for tg_id in tg_ids:
         bot.send_message(tg_id, message)
 
 
 def bot_polling():
+    """Основная функция."""
     logging.info('Запуск бота')
     send_messages(tg_id_list, 'Бот МАЯКер запущен')
     while True:
@@ -351,7 +373,8 @@ def bot_polling():
                 try:
                     send_messages(
                         tg_id_list,
-                        f'У нас проблемы, сплю {ERROR_DELAY_TIME} сек.\n {text_error}'
+                        f'У нас проблемы, сплю {ERROR_DELAY_TIME} '
+                        f'сек.\n {text_error}'
                     )
                 except Exception as text:
                     logging.error(f'Не смог отправить сообщение {text}')
