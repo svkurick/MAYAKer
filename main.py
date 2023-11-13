@@ -12,10 +12,17 @@ from bs4 import BeautifulSoup
 
 
 def get_app_dir():
+    """Получение директории нахождения программы."""
     return os.path.dirname(os.path.abspath(__file__))
 
 
 class UnauthorizedException(Exception):
+    """Возникает при сбое авторизации."""
+    pass
+
+
+class NewsException(Exception):
+    """Возникает при проблемах с получением новостей."""
     pass
 
 
@@ -51,7 +58,6 @@ tg_id_list = get_tg_id()
 
 CHECK_DELAY_TIME = 120
 MIN_ERROR_DELAY_TIME = 10
-ERROR_DELAY_TIME = MIN_ERROR_DELAY_TIME
 MAX_ERROR_DELAY_TIME = 3600
 
 bot = telebot.TeleBot(token)
@@ -70,13 +76,16 @@ session.headers = {
     'accept': '*/*',
     'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
     'referer': 'https://ekis.moscow/lk/',
-    'sec-ch-ua': '"Chromium";v="118", "Google Chrome";v="118", "Not=A?Brand";v="99"',
+    'sec-ch-ua': '"Chromium";v="118", "Google Chrome";v="118",'
+                 '"Not=A?Brand";v="99"',
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-platform': '"Windows"',
     'sec-fetch-dest': 'empty',
     'sec-fetch-mode': 'cors',
     'sec-fetch-site': 'same-origin',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                  'AppleWebKit/537.36 (KHTML, like Gecko) '
+                  'Chrome/118.0.0.0 Safari/537.36',
 }
 
 
@@ -181,7 +190,7 @@ def is_cookies_valid(session):
 
 
 @bot.message_handler(content_types=["text"])
-def auth(message):
+def enter_pass(message):
     """Вторая часть авторизации. Ввод пароля из СМС."""
     try:
         data = {
@@ -201,6 +210,13 @@ def auth(message):
         return session
     except Exception as text_error:
         logging.error(f'Проблемы с вводом СМС пароля {text_error}')
+
+
+def auth():
+    """Весь путь авторизации"""
+    prepare_authorize()
+    bot.polling(none_stop=True, timeout=123)
+    load_cookies()
 
 
 def get_news():
@@ -230,15 +246,9 @@ def get_news():
                     new_news.append(news)
             current_page += 1
     except UnauthorizedException:
-        logging.warning('Проблема с авторизацией')
-        prepare_authorize()
-        bot.polling()
-        return []
+        raise UnauthorizedException
     except Exception as text_error:
-        logging.error(f'Проблема с получением новостей {text_error}')
-        prepare_authorize()
-        bot.polling()
-        return []
+        raise NewsException
 
 
 def download_attachment(news_id, attachments):
@@ -352,36 +362,49 @@ def send_messages(tg_ids, message):
 def bot_polling():
     """Основная функция."""
     logging.info('Запуск бота')
+    news_excep_count = 0
     send_messages(tg_id_list, 'Бот МАЯКер запущен')
+    session.get(URL_INITIAL)
+    load_cookies()
+    error_delay_time = MIN_ERROR_DELAY_TIME
+    if not is_cookies_valid(session):
+        auth()
     while True:
-        session.get(URL_INITIAL)
-        load_cookies()
-        if not is_cookies_valid(session):
-            prepare_authorize()
-            bot.polling(none_stop=True, timeout=123)
-            load_cookies()
-        while True:
+        try:
+            newsfeed = get_news()
+            for news in newsfeed:
+                mark_read(news)
+                send_news_to_tg(news)
+            time.sleep(CHECK_DELAY_TIME)
+            error_delay_time = MIN_ERROR_DELAY_TIME
+
+        except NewsException:
+            if news_excep_count > 3:
+                news_excep_count = 0
+                logging.warning('Проблема с авторизацией')
+                auth()
+            else:
+                logging.warning('Проблема с получением новостей')
+                news_excep_count += 1
+                time.sleep(error_delay_time)
+
+        except UnauthorizedException:
+            logging.warning('Проблема с авторизацией')
+            auth()
+        except Exception as text_error:
+            logging.error(f'Ошибка - {text_error}')
             try:
-                newsfeed = get_news()
-                for news in newsfeed:
-                    mark_read(news)
-                    send_news_to_tg(news)
-                time.sleep(CHECK_DELAY_TIME)
-                ERROR_DELAY_TIME = MIN_ERROR_DELAY_TIME
-            except Exception as text_error:
-                logging.error(f'Ошибка - {text_error}')
-                try:
-                    send_messages(
-                        tg_id_list,
-                        f'У нас проблемы, сплю {ERROR_DELAY_TIME} '
-                        f'сек.\n {text_error}'
-                    )
-                except Exception as text:
-                    logging.error(f'Не смог отправить сообщение {text}')
-                time.sleep(ERROR_DELAY_TIME)
-                ERROR_DELAY_TIME *= ERROR_DELAY_TIME
-                if ERROR_DELAY_TIME > MAX_ERROR_DELAY_TIME:
-                    ERROR_DELAY_TIME = MAX_ERROR_DELAY_TIME
+                send_messages(
+                    tg_id_list,
+                    f'У нас проблемы, сплю {error_delay_time} '
+                    f'сек.\n {text_error}'
+                )
+            except Exception as text:
+                logging.error(f'Не смог отправить сообщение {text}')
+            time.sleep(error_delay_time)
+            error_delay_time *= error_delay_time
+            if error_delay_time > MAX_ERROR_DELAY_TIME:
+                error_delay_time = MAX_ERROR_DELAY_TIME
 
 
 if __name__ == "__main__":
@@ -389,6 +412,6 @@ if __name__ == "__main__":
         try:
             bot_polling()
         except Exception as text_error:
-            logging.error(f'Бот упал, ждем {ERROR_DELAY_TIME} сек.'
+            logging.error(f'Бот упал, ждем {MIN_ERROR_DELAY_TIME} сек.'
                           f'{text_error}')
-            time.sleep(ERROR_DELAY_TIME)
+            time.sleep(MIN_ERROR_DELAY_TIME)
