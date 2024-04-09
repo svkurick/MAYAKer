@@ -62,6 +62,7 @@ MAX_ERROR_DELAY_TIME = 3600
 
 bot = telebot.TeleBot(token)
 
+URL_ME = 'https://ekis.moscow/lk/api/v1/user/me'
 URL_INITIAL = 'https://ekis.moscow/lk/actions/change'
 URL_CONFIRM = 'https://center.educom.ru/oauth/sfa'
 URL_NEWS = 'https://ekis.moscow/lk/api/v1/newsfeeds/list'
@@ -204,6 +205,16 @@ def enter_pass(message):
             bot.send_message(message.chat.id, 'Код не подошел.. ')
             prepare_authorize()
             return
+
+        # #ДЛЯ И.О.
+        # URL_IO = 'https://center.educom.ru/oauth/sel'
+        # data = {
+        #      'sr': 'OQ==',
+        #      'role': '450031',
+        #  }
+        # session.post(URL_IO, data=data)
+        # #КОНЕЦ ДЛЯ И.О.
+
         bot.send_message(message.chat.id, 'Все отлично! Ждем писем')
         save_cookies_from_session(session)
         bot.stop_polling()
@@ -290,7 +301,8 @@ def send_media_group(tg_id, message):
     bot.send_message(tg_id, message, parse_mode='HTML')
     bot.send_media_group(
         tg_id,
-        media=media_group
+        media=media_group,
+        timeout=10
     )
     for media in media_group:
         media.media.close()
