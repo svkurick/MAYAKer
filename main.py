@@ -251,6 +251,7 @@ def enter_pass(message):
             prepare_authorize()
             return
 
+
         # #ДЛЯ И.О.
         # URL_IO = 'https://center.educom.ru/oauth/sel'
         # data = {
