@@ -9,21 +9,14 @@ import telebot
 import logging
 from telebot import types
 from bs4 import BeautifulSoup
+from selenium.webdriver import Firefox
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.common.by import By
 
 
 def get_app_dir():
     """Получение директории нахождения программы."""
     return os.path.dirname(os.path.abspath(__file__))
-
-
-class UnauthorizedException(Exception):
-    """Возникает при сбое авторизации."""
-    pass
-
-
-class NewsException(Exception):
-    """Возникает при проблемах с получением новостей."""
-    pass
 
 
 def get_tg_id():
@@ -64,6 +57,7 @@ bot = telebot.TeleBot(token)
 
 URL_ME = 'https://ekis.moscow/lk/api/v1/user/me'
 URL_INITIAL = 'https://ekis.moscow/lk/actions/change'
+# URL_INITIAL = 'https://center.educom.ru/oauth/auth?sr=OQ=='
 URL_CONFIRM = 'https://center.educom.ru/oauth/sfa'
 URL_NEWS = 'https://ekis.moscow/lk/api/v1/newsfeeds/list'
 URL_UPDATE = 'https://ekis.moscow/lk/api/v1/newsfeeds/update'
@@ -90,6 +84,23 @@ session.headers = {
 }
 
 
+# Настройка браузера
+
+CSRF_NAME_VALUE = ''
+CSRF_VALUE_VALUE = ''
+AUTH_COOKIES = ''
+
+
+class UnauthorizedException(Exception):
+    """Возникает при сбое авторизации."""
+    pass
+
+
+class NewsException(Exception):
+    """Возникает при проблемах с получением новостей."""
+    pass
+
+
 def success_confirmation_answer(html):
     """Возвращает True при правильно введенном СМС-коде авторизации."""
     soup = BeautifulSoup(html, 'html.parser')
@@ -99,24 +110,51 @@ def success_confirmation_answer(html):
         return True
     logging.warning('Некорректный код подтверждения из СМС')
     return False
+    # if header.get_text() == 'Ошибка!':
+    #     logging.warning('Некорректный код подтверждения из СМС')
+    #     return False
+    # logging.info('Успешная авторизация, СМС код подошел')
+    # return True
 
 
 @bot.callback_query_handler(func=lambda call: True)
 def start_auth(call):
     """Первая часть авторизации.
 
-    Ввод логина и пароля, запорс СМС пароля."""
+    Ввод логина и пароля, запрос СМС пароля."""
     try:
-        session.cookies.clear()
-        r = session.get(URL_INITIAL)
-        next_url = r.history[1].next.url
-        data = {
-            'sr': 'OQ==',
-            'username': username,
-            'password': password,
-        }
+        global CSRF_NAME_VALUE
+        global CSRF_VALUE_VALUE
+        global AUTH_COOKIES
 
-        session.post(next_url, data=data)
+        opts = Options()
+        opts.add_argument("--headless")
+        opts.set_preference('devtools.jsonview.enabled', False)
+
+        browser = Firefox(options=opts)
+
+        browser.get('https://center.educom.ru/oauth/auth?sr=OQ==')
+        time.sleep(2)
+
+        el = browser.find_element(By.ID, 'username')
+        el.send_keys(username)
+        el = browser.find_element(By.ID, 'password')
+        el.send_keys(password)
+        time.sleep(2)
+
+        el = browser.find_element(By.ID, 'btn_login_submit')
+        el.click()
+
+        result = browser.page_source
+        soup = BeautifulSoup(result, 'html.parser')
+
+        csrf_name_input = soup.find('input', {'name': 'csrf_name'})
+        CSRF_NAME_VALUE = csrf_name_input['value']
+
+        csrf_value_input = soup.find('input', {'name': 'csrf_value'})
+        CSRF_VALUE_VALUE = csrf_value_input['value']
+        AUTH_COOKIES = browser.get_cookies()
+        browser.quit()
         bot.send_message(
             call.message.chat.id,
             'Напиши код подтверждения из СМС'
@@ -194,7 +232,14 @@ def is_cookies_valid(session):
 def enter_pass(message):
     """Вторая часть авторизации. Ввод пароля из СМС."""
     try:
+        session = requests.Session()
+        for cookie in AUTH_COOKIES:
+            session.cookies.set(cookie['name'], cookie['value'],
+                                domain=cookie['domain'])
         data = {
+            'sr': 'OQ==',
+            'csrf_name': CSRF_NAME_VALUE,
+            'csrf_value': CSRF_VALUE_VALUE,
             'confirm_code': message.text,
             'sfa_time_reload': '',
         }
