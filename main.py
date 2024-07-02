@@ -2,7 +2,6 @@ import time
 import os
 import requests
 from datetime import datetime
-import json
 import pickle
 
 from urllib.parse import urlparse, parse_qs
