@@ -3,15 +3,14 @@ import os
 import requests
 from datetime import datetime
 import json
+import pickle
 
+from urllib.parse import urlparse, parse_qs
 import configparser
 import telebot
 import logging
 from telebot import types
 from bs4 import BeautifulSoup
-from selenium.webdriver import Firefox
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.common.by import By
 
 
 def get_app_dir():
@@ -57,38 +56,15 @@ bot = telebot.TeleBot(token)
 
 URL_ME = 'https://ekis.moscow/lk/api/v1/user/me'
 URL_INITIAL = 'https://ekis.moscow/lk/actions/change'
-# URL_INITIAL = 'https://center.educom.ru/oauth/auth?sr=OQ=='
 URL_CONFIRM = 'https://center.educom.ru/oauth/sfa'
+URL_GET_AUTH = 'https://center.educom.ru/oauth/auth'
 URL_NEWS = 'https://ekis.moscow/lk/api/v1/newsfeeds/list'
 URL_UPDATE = 'https://ekis.moscow/lk/api/v1/newsfeeds/update'
 URL_ATTACHMENT = 'https://ekis.moscow/lk/api/v1/newsfeeds/download/'
 URL_READ_NEWS = 'https://ekis.moscow/lk/api/v1/newsfeeds/'
 URL_EKIS_FORM = 'https://ekis.moscow/lk/api/v1/services/redirect/ekis'
-
-session = requests.Session()
-session.headers = {
-    'authority': 'ekis.moscow',
-    'accept': '*/*',
-    'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-    'referer': 'https://ekis.moscow/lk/',
-    'sec-ch-ua': '"Chromium";v="118", "Google Chrome";v="118",'
-                 '"Not=A?Brand";v="99"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-origin',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                  'AppleWebKit/537.36 (KHTML, like Gecko) '
-                  'Chrome/118.0.0.0 Safari/537.36',
-}
-
-
-# Настройка браузера
-
-CSRF_NAME_VALUE = ''
-CSRF_VALUE_VALUE = ''
-AUTH_COOKIES = ''
+URL_LK = 'https://ekis.moscow/lk/'
+URL_GET_NEW_SFA = 'https://center.educom.ru/oauth/sfa?sr=OQ=='
 
 
 class UnauthorizedException(Exception):
@@ -101,60 +77,37 @@ class NewsException(Exception):
     pass
 
 
-def success_confirmation_answer(html):
-    """Возвращает True при правильно введенном СМС-коде авторизации."""
-    soup = BeautifulSoup(html, 'html.parser')
-    header = soup.find('h4', class_='alert-heading')
-    if header is None:
-        logging.info('Успешная авторизация, СМС код подошел')
-        return True
-    logging.warning('Некорректный код подтверждения из СМС')
-    return False
-    # if header.get_text() == 'Ошибка!':
-    #     logging.warning('Некорректный код подтверждения из СМС')
-    #     return False
-    # logging.info('Успешная авторизация, СМС код подошел')
-    # return True
-
-
 @bot.callback_query_handler(func=lambda call: True)
 def start_auth(call):
     """Первая часть авторизации.
 
     Ввод логина и пароля, запрос СМС пароля."""
     try:
-        global CSRF_NAME_VALUE
-        global CSRF_VALUE_VALUE
-        global AUTH_COOKIES
-
-        opts = Options()
-        opts.add_argument("--headless")
-        opts.set_preference('devtools.jsonview.enabled', False)
-
-        browser = Firefox(options=opts)
-
-        browser.get('https://center.educom.ru/oauth/auth?sr=OQ==')
-        time.sleep(2)
-
-        el = browser.find_element(By.ID, 'username')
-        el.send_keys(username)
-        el = browser.find_element(By.ID, 'password')
-        el.send_keys(password)
-        time.sleep(2)
-
-        el = browser.find_element(By.ID, 'btn_login_submit')
-        el.click()
-
-        result = browser.page_source
-        soup = BeautifulSoup(result, 'html.parser')
+        auth_session = requests.Session()
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        }
+        auth_session.headers.update(headers)
+        r = auth_session.get(URL_INITIAL, allow_redirects=True)
+        soup = BeautifulSoup(r.text, 'html.parser')
 
         csrf_name_input = soup.find('input', {'name': 'csrf_name'})
-        CSRF_NAME_VALUE = csrf_name_input['value']
+        csrf_name = csrf_name_input['value']
 
         csrf_value_input = soup.find('input', {'name': 'csrf_value'})
-        CSRF_VALUE_VALUE = csrf_value_input['value']
-        AUTH_COOKIES = browser.get_cookies()
-        browser.quit()
+        csrf_value = csrf_value_input['value']
+
+        data = {
+            'sr': 'OQ==',
+            'csrf_name': csrf_name,
+            'csrf_value': csrf_value,
+            'username': username,
+            'password': password,
+        }
+        time.sleep(2)
+        req = auth_session.post(URL_GET_AUTH, data=data, allow_redirects=False)
+
+        save_cookies_from_session(auth_session)
         bot.send_message(
             call.message.chat.id,
             'Напиши код подтверждения из СМС'
@@ -190,30 +143,29 @@ def prepare_authorize():
 
 
 def save_cookies_from_session(session):
-    """Сохранение куков после успешной авторизации."""
+    """Сохранение сессии после успешной авторизации."""
     try:
-        cookies_dict = requests.utils.dict_from_cookiejar(session.cookies)
-        with open('cookies.json', 'w') as file:
-            json.dump(cookies_dict, file)
-        logging.info('Куки сохранены')
+        with open('session.pkl', 'wb') as file:
+            pickle.dump(session, file)
+        logging.info('Сессия сохранена')
     except Exception as text_error:
-        logging.error(f'Проблемы с сохранением куки {text_error}')
+        logging.error(f'Проблемы с сохранением сессии: {text_error}')
 
 
 def load_cookies():
-    """Загрузка куков из файла для работы."""
+    """Загрузка сессии из файла для работы."""
     try:
-        with open('cookies.json', 'r') as file:
-            cookies_dict = json.load(file)
-            session.cookies.clear()
-            session.cookies = requests.utils.cookiejar_from_dict(cookies_dict)
-        logging.info('Куки загружены')
+        session = requests.Session()
+        with open('session.pkl', 'rb') as file:
+            session = pickle.load(file)
+        logging.info('Сессия загружена')
+        return session
     except Exception as text_error:
-        logging.error(f'Не существует файла с куками,'
+        logging.error(f'Не существует файла с сессией,'
                       f'создаем файл, {text_error}')
-        with open('cookies.json', 'wb') as f:
+        with open('session.pkl', 'wb') as f:
             f.close()
-    return session
+        return session
 
 
 def is_cookies_valid(session):
@@ -232,25 +184,72 @@ def is_cookies_valid(session):
 def enter_pass(message):
     """Вторая часть авторизации. Ввод пароля из СМС."""
     try:
-        session = requests.Session()
-        for cookie in AUTH_COOKIES:
-            session.cookies.set(cookie['name'], cookie['value'],
-                                domain=cookie['domain'])
-        data = {
+        session = load_cookies()
+        get_sfa = session.get(URL_GET_NEW_SFA)
+        soup = BeautifulSoup(get_sfa.text, 'html.parser')
+
+        csrf_name_input = soup.find('input', {'name': 'csrf_name'})
+        csrf_name = csrf_name_input['value']
+
+        csrf_value_input = soup.find('input', {'name': 'csrf_value'})
+        csrf_value = csrf_value_input['value']
+        csrf_data = {
             'sr': 'OQ==',
-            'csrf_name': CSRF_NAME_VALUE,
-            'csrf_value': CSRF_VALUE_VALUE,
+            'csrf_name': csrf_name,
+            'csrf_value': csrf_value,
             'confirm_code': message.text,
             'sfa_time_reload': '',
         }
-        r = session.post(URL_CONFIRM, data=data)
 
-        html = r.text
-        if not success_confirmation_answer(html):
+        r_sfa = session.post(
+            URL_CONFIRM,
+            data=csrf_data,
+            allow_redirects=False
+        )
+        location = r_sfa.headers.get('Location')
+        if location == '/oauth/sfa?sr=OQ==':
+            logging.warning('Некорректный код подтверждения из СМС')
             bot.send_message(message.chat.id, 'Код не подошел.. ')
             prepare_authorize()
             return
+        parsed_url = urlparse(location)
+        query_params = parse_qs(parsed_url.query)
 
+        code = query_params.get('code', [None])[0]
+
+        state = query_params.get('state', [None])[0]
+        location_params = {
+            'code': code,
+            'state': state
+        }
+        base_url = parsed_url.scheme + '://' + parsed_url.netloc + parsed_url.path
+
+        session_id = session.cookies.get('SessionId')
+
+        special_headers = {
+            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'accept-language': 'ru-RU,ru;q=0.9',
+            'cookie': f'SessionId={session_id}',
+            'cache-control': 'max-age=0',
+            'priority': 'u=0, i',
+            'referer': 'https://center.educom.ru/',
+            'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'document',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-site': 'cross-site',
+            'sec-fetch-user': '?1',
+            'upgrade-insecure-requests': '1',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        }
+        session.headers.update(special_headers)
+        time.sleep(1)
+        r_location = session.get(
+            base_url,
+            params=location_params,
+            allow_redirects=False
+        )
 
         # #ДЛЯ И.О.
         # URL_IO = 'https://center.educom.ru/oauth/sel'
@@ -261,10 +260,10 @@ def enter_pass(message):
         # session.post(URL_IO, data=data)
         # #КОНЕЦ ДЛЯ И.О.
 
+        logging.info('Успешная авторизация, СМС код подошел')
         bot.send_message(message.chat.id, 'Все отлично! Ждем писем')
         save_cookies_from_session(session)
         bot.stop_polling()
-        return session
     except Exception as text_error:
         logging.error(f'Проблемы с вводом СМС пароля {text_error}')
 
@@ -273,10 +272,9 @@ def auth():
     """Весь путь авторизации"""
     prepare_authorize()
     bot.polling(none_stop=True, timeout=123)
-    load_cookies()
 
 
-def get_news():
+def get_news(session):
     """Получение непрочитанных и непросмотренных новостей."""
     try:
         VIEWED = 1
@@ -304,11 +302,11 @@ def get_news():
             current_page += 1
     except UnauthorizedException:
         raise UnauthorizedException
-    except Exception as text_error:
+    except Exception:
         raise NewsException
 
 
-def download_attachment(news_id, attachments):
+def download_attachment(news_id, attachments, session):
     """Загрузка вложенных к новостям документов."""
     try:
         link = URL_ATTACHMENT + news_id
@@ -380,7 +378,7 @@ def send_news_to_tg(news):
         logging.error(f'Проблема с отправкой новостей в тг {text_error}')
 
 
-def mark_read(news):
+def mark_read(news, session):
     """Новость в МАЯКе отмечается как прочитанная."""
     try:
         read_url = URL_READ_NEWS + str(news['id'])
@@ -404,7 +402,7 @@ def mark_read(news):
             )
 
         if len(data['attachments']) > 0:
-            download_attachment(str(news['id']), data['attachments'])
+            download_attachment(str(news['id']), data['attachments'], session)
         logging.info(f'Новость прочитана {news["text"]} ')
         return news
     except Exception as text_error:
@@ -420,18 +418,17 @@ def send_messages(tg_ids, message):
 def bot_polling():
     """Основная функция."""
     logging.info('Запуск бота')
+    error_delay_time = MIN_ERROR_DELAY_TIME
     news_excep_count = 0
     send_messages(tg_id_list, 'Бот МАЯКер запущен')
-    session.get(URL_INITIAL)
-    load_cookies()
-    error_delay_time = MIN_ERROR_DELAY_TIME
+    session = load_cookies()
     if not is_cookies_valid(session):
         auth()
     while True:
         try:
-            newsfeed = get_news()
+            newsfeed = get_news(session)
             for news in newsfeed:
-                mark_read(news)
+                mark_read(news, session)
                 send_news_to_tg(news)
             time.sleep(CHECK_DELAY_TIME)
             error_delay_time = MIN_ERROR_DELAY_TIME

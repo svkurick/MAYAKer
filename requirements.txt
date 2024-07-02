@@ -6,6 +6,3 @@ pyTelegramBotAPI==4.14.0
 requests==2.31.0
 soupsieve==2.5
 urllib3==2.0.6
-
-
-selenium~=4.21.0
