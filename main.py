@@ -214,7 +214,7 @@ def enter_pass(message):
         # csrf_name_input = soup_io.find('input', {'name': 'csrf_name'})
         # csrf_name = csrf_name_input['value']
         #
-        # csrf_value_input = soup.find('input', {'name': 'csrf_value'})
+        # csrf_value_input = soup_io.find('input', {'name': 'csrf_value'})
         # csrf_value = csrf_value_input['value']
         # URL_IO = 'https://center.educom.ru/oauth/sel'
         # data = {
@@ -225,9 +225,6 @@ def enter_pass(message):
         # }
         # r_sfa = session.post(URL_IO, data=data)
         # # КОНЕЦ ДЛЯ И.О.
-
-
-
 
         location = r_sfa.headers.get('Location')
         if location == '/oauth/sfa?sr=OQ==':
@@ -443,7 +440,6 @@ def bot_polling():
     special_headers = {
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
         'accept-language': 'ru-RU,ru;q=0.9',
-        'cookie': 'SessionId=teLCEvibmw6fgFkoH67gdQ%3D%3DYXM1RUF5U1BEbTlyeGphS2mv5XBbB0ZDxNhGoMmcwSPbwlT5kQhJlc-wt8RJrG3A',
         'cache-control': 'max-age=0',
         'priority': 'u=0, i',
         'referer': 'https://center.educom.ru/',
@@ -458,7 +454,7 @@ def bot_polling():
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
     }
     session.headers.update(special_headers)
-    req = session.get('https://center.educom.ru/oauth/role?sr=OQ==')
+    req = session.get(URL_NEWS)
     if not is_cookies_valid(session):
         auth()
     while True:
