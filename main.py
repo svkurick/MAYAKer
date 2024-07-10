@@ -205,6 +205,30 @@ def enter_pass(message):
             data=csrf_data,
             allow_redirects=False
         )
+
+        # # ДЛЯ И.О.
+        # GET_SFA_URL = 'https://center.educom.ru/oauth/role?sr=OQ=='
+        # get_sfa_io = session.get(GET_SFA_URL)
+        # soup_io = BeautifulSoup(get_sfa_io.text, 'html.parser')
+        #
+        # csrf_name_input = soup_io.find('input', {'name': 'csrf_name'})
+        # csrf_name = csrf_name_input['value']
+        #
+        # csrf_value_input = soup.find('input', {'name': 'csrf_value'})
+        # csrf_value = csrf_value_input['value']
+        # URL_IO = 'https://center.educom.ru/oauth/sel'
+        # data = {
+        #     'sr': 'OQ==',
+        #     'csrf_name': csrf_name,
+        #     'csrf_value': csrf_value,
+        #     'role': '554694',
+        # }
+        # r_sfa = session.post(URL_IO, data=data)
+        # # КОНЕЦ ДЛЯ И.О.
+
+
+
+
         location = r_sfa.headers.get('Location')
         if location == '/oauth/sfa?sr=OQ==':
             logging.warning('Некорректный код подтверждения из СМС')
@@ -250,15 +274,6 @@ def enter_pass(message):
             allow_redirects=False
         )
 
-        # #ДЛЯ И.О.
-        # URL_IO = 'https://center.educom.ru/oauth/sel'
-        # data = {
-        #      'sr': 'OQ==',
-        #      'role': '450031',
-        #  }
-        # session.post(URL_IO, data=data)
-        # #КОНЕЦ ДЛЯ И.О.
-
         logging.info('Успешная авторизация, СМС код подошел')
         bot.send_message(message.chat.id, 'Все отлично! Ждем писем')
         save_cookies_from_session(session)
@@ -280,6 +295,7 @@ def get_news(session):
         READ = 2
         current_page = 1
         new_news = []
+        flag = True
         while True:
             params = {
                 'page': str(current_page),
@@ -289,14 +305,16 @@ def get_news(session):
                 raise UnauthorizedException
             response = r.json()
             data = response['data']
-            if len(data) == 0:
+            if len(data) == 0 or flag == False:
                 if len(new_news) > 0:
                     logging.info(f'Появились новости. {len(new_news)} шт.')
                 else:
                     logging.info('Новостей нет')
                 return new_news
+            flag = False
             for news in data:
                 if news['status'] == VIEWED or news['status'] == READ:
+                    flag = True
                     new_news.append(news)
             current_page += 1
     except UnauthorizedException:
@@ -421,6 +439,26 @@ def bot_polling():
     news_excep_count = 0
     send_messages(tg_id_list, 'Бот МАЯКер запущен')
     session = load_cookies()
+
+    special_headers = {
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'accept-language': 'ru-RU,ru;q=0.9',
+        'cookie': 'SessionId=teLCEvibmw6fgFkoH67gdQ%3D%3DYXM1RUF5U1BEbTlyeGphS2mv5XBbB0ZDxNhGoMmcwSPbwlT5kQhJlc-wt8RJrG3A',
+        'cache-control': 'max-age=0',
+        'priority': 'u=0, i',
+        'referer': 'https://center.educom.ru/',
+        'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-fetch-dest': 'document',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-site': 'cross-site',
+        'sec-fetch-user': '?1',
+        'upgrade-insecure-requests': '1',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    }
+    session.headers.update(special_headers)
+    req = session.get('https://center.educom.ru/oauth/role?sr=OQ==')
     if not is_cookies_valid(session):
         auth()
     while True:
