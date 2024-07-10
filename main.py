@@ -206,25 +206,25 @@ def enter_pass(message):
             allow_redirects=False
         )
 
-        # # ДЛЯ И.О.
-        # GET_SFA_URL = 'https://center.educom.ru/oauth/role?sr=OQ=='
-        # get_sfa_io = session.get(GET_SFA_URL)
-        # soup_io = BeautifulSoup(get_sfa_io.text, 'html.parser')
-        #
-        # csrf_name_input = soup_io.find('input', {'name': 'csrf_name'})
-        # csrf_name = csrf_name_input['value']
-        #
-        # csrf_value_input = soup_io.find('input', {'name': 'csrf_value'})
-        # csrf_value = csrf_value_input['value']
-        # URL_IO = 'https://center.educom.ru/oauth/sel'
-        # data = {
-        #     'sr': 'OQ==',
-        #     'csrf_name': csrf_name,
-        #     'csrf_value': csrf_value,
-        #     'role': '554694',
-        # }
-        # r_sfa = session.post(URL_IO, data=data)
-        # # КОНЕЦ ДЛЯ И.О.
+        # ДЛЯ И.О.
+        GET_SFA_URL = 'https://center.educom.ru/oauth/role?sr=OQ=='
+        get_sfa_io = session.get(GET_SFA_URL)
+        soup_io = BeautifulSoup(get_sfa_io.text, 'html.parser')
+
+        csrf_name_input = soup_io.find('input', {'name': 'csrf_name'})
+        csrf_name = csrf_name_input['value']
+
+        csrf_value_input = soup_io.find('input', {'name': 'csrf_value'})
+        csrf_value = csrf_value_input['value']
+        URL_IO = 'https://center.educom.ru/oauth/sel'
+        data = {
+            'sr': 'OQ==',
+            'csrf_name': csrf_name,
+            'csrf_value': csrf_value,
+            'role': '554694',
+        }
+        r_sfa = session.post(URL_IO, data=data, allow_redirects=False)
+        # КОНЕЦ ДЛЯ И.О.
 
         location = r_sfa.headers.get('Location')
         if location == '/oauth/sfa?sr=OQ==':
@@ -302,7 +302,7 @@ def get_news(session):
                 raise UnauthorizedException
             response = r.json()
             data = response['data']
-            if len(data) == 0 or flag == False:
+            if len(data) == 0 or flag is False:
                 if len(new_news) > 0:
                     logging.info(f'Появились новости. {len(new_news)} шт.')
                 else:
